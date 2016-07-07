@@ -15,13 +15,14 @@
  */
 package edu.emory.mathcs.nlp.learning.optimization;
 
-import java.util.Arrays;
-
 import edu.emory.mathcs.nlp.learning.optimization.reguralization.Regularizer;
 import edu.emory.mathcs.nlp.learning.util.MajorVector;
 import edu.emory.mathcs.nlp.learning.util.WeightVector;
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
-import it.unimi.dsi.fastutil.ints.IntSet;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+
+import java.util.Arrays;
 
 /**
  * @author Jinho D. Choi ({@code jinho.choi@emory.edu})
@@ -30,8 +31,8 @@ public abstract class AdaptiveGradientDescentMiniBatch extends AdaptiveGradientD
 {
 	private static final long serialVersionUID = -9070887527388228842L;
 	protected transient WeightVector gradients;
-	protected transient IntSet       sparse_updated_indices;
-	protected transient IntSet       dense_updated_indices;
+	protected transient LongSet      sparse_updated_indices;
+	protected transient LongSet      dense_updated_indices;
 	protected transient int          batch_steps;
 	
 	public AdaptiveGradientDescentMiniBatch(WeightVector vector, float learningRate, float bias)
@@ -45,8 +46,8 @@ public abstract class AdaptiveGradientDescentMiniBatch extends AdaptiveGradientD
 
 		batch_steps = 1;
 		gradients = vector.createZeroVector();
-		sparse_updated_indices = new IntOpenHashSet();
-		dense_updated_indices  = new IntOpenHashSet();
+		sparse_updated_indices = new LongOpenHashSet();
+		dense_updated_indices  = new LongOpenHashSet();
 	}
 	
 	@Override
@@ -64,8 +65,10 @@ public abstract class AdaptiveGradientDescentMiniBatch extends AdaptiveGradientD
 		int index = g.indexOf(y, xi);
 
 		g.add(index, gradient);
- 		if (sparse)	sparse_updated_indices.add(index);
- 		else		dense_updated_indices .add(index);
+		// Indices change after expand, so keep (y,xi) and evaluate index during updateMiniBatch.
+		long cord = y | (((long)xi) << 32); // Put pair (y,xi) into long
+ 		if (sparse)	sparse_updated_indices.add(cord);
+ 		else		dense_updated_indices .add(cord);
  	}
 	
 	@Override
@@ -78,12 +81,17 @@ public abstract class AdaptiveGradientDescentMiniBatch extends AdaptiveGradientD
 	
 	protected void update(boolean sparse)
 	{
-		IntSet s = sparse ? sparse_updated_indices : dense_updated_indices;
+		LongSet s = sparse ? sparse_updated_indices : dense_updated_indices;
 		MajorVector w = weight_vector.getMajorVector(sparse);
 		MajorVector d = diagonals    .getMajorVector(sparse);
 		MajorVector g = gradients    .getMajorVector(sparse);
-		
-		int[] indices = s.toIntArray();
+
+		int[] indices = new int[s.size()];
+		LongIterator it = s.iterator();
+		for (int i = 0; i < indices.length; ++i) {
+			long cord = it.nextLong();
+			indices[i] = g.indexOf((int)cord, (int)(cord >>> 32));
+		}
 		Arrays.sort(indices);
 		
 		updateDiagonals(d, g, indices);
